@@ -2172,6 +2172,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap 4.4.8",
+ "hex",
  "near-da-http-api-data",
  "near-da-primitives",
  "near-da-rpc",
@@ -2211,7 +2212,6 @@ dependencies = [
  "cbindgen",
  "eyre",
  "futures",
- "log",
  "near-crypto 0.17.0",
  "near-da-primitives",
  "near-jsonrpc-client",
@@ -2222,6 +2222,8 @@ dependencies = [
  "serde_json",
  "serde_with",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "which 5.0.0",
 ]
 
@@ -3800,9 +3802,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.11.2"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dccd0940a2dcdf68d092b8cbab7dc0ad8fa938bf95787e1b916b0e3d0e8e970"
+checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
 name = "smart-default"

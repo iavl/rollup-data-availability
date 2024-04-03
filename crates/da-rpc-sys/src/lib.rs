@@ -292,13 +292,9 @@ pub unsafe extern "C" fn submit_batch(
         match RUNTIME.block_on(client.submit(&[blob])) {
             Ok(result) => {
                 let tx = result.0;
-                CryptoHash::from_str(&tx)
-                    .map(BlobRef::new)
-                    .map(|blob_ref| RustSafeArray::new((*blob_ref).to_vec()))
-                    .unwrap_or_else(|e| {
-                        update_last_error(anyhow::anyhow!(e));
-                        RustSafeArray::new(vec![])
-                    })
+                let blob_ref = BlobRef::new(tx);
+
+                RustSafeArray::new((*blob_ref).to_vec())
             }
             Err(e) => {
                 update_last_error(anyhow::anyhow!(e));
@@ -313,7 +309,6 @@ pub unsafe extern "C" fn submit_batch(
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use da_rpc::log::LevelFilter;
     use da_rpc::near::config::Network;
     use std::env;
     use std::ffi::CString;
@@ -332,13 +327,6 @@ pub mod test {
     }
 
     fn test_get_client() -> (Client, Config) {
-        pretty_env_logger::formatted_builder()
-            .filter_level(LevelFilter::Debug)
-            .filter_module("near_jsonrpc_client", LevelFilter::Off)
-            .filter_module("hyper", LevelFilter::Off)
-            .filter_module("reqwest", LevelFilter::Off)
-            .try_init()
-            .ok();
         let account = env::var("TEST_NEAR_ACCOUNT").unwrap();
         let secret = env::var("TEST_NEAR_SECRET").unwrap();
         let config = Config {

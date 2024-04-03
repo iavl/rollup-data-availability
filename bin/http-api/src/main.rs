@@ -7,14 +7,18 @@ use axum::{
     routing, Router,
 };
 use clap::Parser;
-use near_da_http_api_data::{BlobRequest, ConfigureClientRequest, SubmitRequest};
+use near_da_http_api_data::ConfigureClientRequest;
 use near_da_rpc::{
     near::{config::Config, Client},
-    DataAvailability,
+    Blob, BlobRef, CryptoHash, DataAvailability,
 };
 use tokio::sync::RwLock;
-use tower_http::trace::{self, TraceLayer};
-use tracing::Level;
+use tower_http::{
+    classify::ServerErrorsFailureClass,
+    trace::{self, TraceLayer},
+};
+use tracing::{debug, Level};
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -42,10 +46,9 @@ fn config_request_to_config(request: ConfigureClientRequest) -> Result<Config, a
             .as_str()
             .try_into()
             .map_err(|e: String| anyhow::anyhow!(e))?,
-        namespace: near_da_primitives::Namespace::new(
-            request.namespace.version,
-            request.namespace.id,
-        ),
+        namespace: request
+            .namespace
+            .map(|ns| near_da_primitives::Namespace::new(ns.version, ns.id)),
     })
 }
 
@@ -53,6 +56,8 @@ async fn configure_client(
     State(state): State<Arc<RwLock<AppState>>>,
     Json(request): Json<ConfigureClientRequest>,
 ) -> anyhow::Result<(), AppError> {
+    debug!("client configuration request: {:?}", request);
+    // TODO: puts are fine here
     match state.write().await.client {
         Some(_) => Err(anyhow::anyhow!("client has already been configured").into()),
         ref mut c @ None => {
@@ -65,8 +70,9 @@ async fn configure_client(
 
 async fn get_blob(
     State(state): State<Arc<RwLock<AppState>>>,
-    Query(request): Query<BlobRequest>,
+    Query(request): Query<BlobRef>,
 ) -> anyhow::Result<Json<near_da_http_api_data::Blob>, AppError> {
+    debug!("getting blob: {:?}", request);
     let app_state = state.read().await;
     let client = app_state
         .client
@@ -74,33 +80,21 @@ async fn get_blob(
         .ok_or(anyhow::anyhow!("client is not configured"))?;
 
     let blob = client
-        .get(
-            request
-                .transaction_id
-                .parse()
-                .map_err(|e| anyhow::anyhow!("invalid transaction id: {}", e))?,
-        )
+        .get(CryptoHash(request.transaction_id))
         .await
         .map_err(|e| anyhow::anyhow!("failed to get blob: {}", e))?
         .0;
 
-    let blob = near_da_http_api_data::Blob {
-        namespace: near_da_http_api_data::Namespace {
-            version: blob.namespace.version,
-            id: blob.namespace.id,
-        },
-        share_version: blob.share_version,
-        commitment: blob.commitment,
-        data: blob.data,
-    };
+    let blob = near_da_http_api_data::Blob { data: blob.data };
 
     Ok(Json(blob))
 }
 
 async fn submit_blob(
     State(state): State<Arc<RwLock<AppState>>>,
-    Json(request): Json<SubmitRequest>,
+    Json(request): Json<Blob>,
 ) -> anyhow::Result<String, AppError> {
+    debug!("submitting blob: {:?}", request);
     let app_state = state.read().await;
     let client = app_state
         .client
@@ -108,14 +102,12 @@ async fn submit_blob(
         .ok_or(anyhow::anyhow!("client is not configured"))?;
 
     let result = client
-        .submit(&[near_da_primitives::Blob::new_v0(
-            client.config.namespace,
-            request.data,
-        )])
+        .submit(&[near_da_primitives::Blob::new_v0(request.data)])
         .await
         .map_err(|e| anyhow::anyhow!("failed to submit blobs: {}", e))?;
+    debug!("submit_blob result: {:?}", result);
 
-    Ok(result.0)
+    Ok(hex::encode(result.0))
 }
 
 // https://github.com/tokio-rs/axum/blob/d7258bf009194cf2f242694e673759d1dbf8cfc0/examples/anyhow-error-response/src/main.rs#L34-L57
@@ -123,6 +115,7 @@ struct AppError(anyhow::Error);
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        tracing::error!("{}", self.0);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("something went wrong: {}", self.0),
@@ -146,6 +139,7 @@ async fn main() {
 
     tracing_subscriber::fmt()
         .with_target(false)
+        .with_env_filter(EnvFilter::from_default_env())
         .compact()
         .init();
 
@@ -170,6 +164,10 @@ async fn main() {
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()
+                .on_failure(trace::DefaultOnFailure::new().level(Level::WARN))
+                .on_failure(|_error: ServerErrorsFailureClass, _latency, _request: &_| {
+                    tracing::warn!("request failed {:?}", _error);
+                })
                 .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
                 .on_response(trace::DefaultOnResponse::new().level(Level::INFO)),
         );
