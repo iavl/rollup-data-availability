@@ -1,3 +1,45 @@
+// Package sidecar provides a client for interacting with the Near Protocol Sidecar service.
+//
+// The sidecar service is responsible for submitting and retrieving data blobs to and from the Near blockchain.
+// It acts as an intermediary between the application and the Near blockchain, abstracting away the complexities
+// of interacting with the blockchain directly.
+//
+// Security Considerations:
+// - The sidecar service should be running on a trusted host and port.
+// - The host and port should be configurable and not hardcoded.
+// - The client should verify the identity of the sidecar service using TLS certificates.
+// - The client should validate and sanitize all input parameters to prevent injection attacks.
+// - The client should handle errors gracefully and not leak sensitive information in error messages.
+// - The client should use secure communication channels (e.g., HTTPS) to prevent eavesdropping and tampering.
+// - The client should have proper authentication and authorization mechanisms to prevent unauthorized access.
+//
+// Usage:
+//
+// 1. Create a new client instance using the `NewClient` function, providing the host and configuration.
+//
+//	client, err := sidecar.NewClient("http://localhost:5888", &sidecar.ConfigureClientRequest{...})
+//	if err != nil {
+//	    // Handle error
+//	}
+//
+// 2. Use the client to interact with the sidecar service.
+//
+//	// Submit a blob
+//	blob := sidecar.Blob{Data: []byte("test_data")}
+//	blobRef, err := client.SubmitBlob(blob)
+//	if err != nil {
+//	    // Handle error
+//	}
+//
+//	// Get a blob
+//	retrievedBlob, err := client.GetBlob(*blobRef)
+//	if err != nil {
+//	    // Handle error
+//	}
+//
+// 3. Close the client when done.
+//
+//	client.Close()
 package sidecar
 
 import (
@@ -8,112 +50,208 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-
-	log "github.com/sirupsen/logrus"
 )
 
+// Client represents a client for interacting with the Near Protocol Sidecar service.
 type Client struct {
 	client *http.Client
-	/// The host of the sidecar service
-	Host   string
-	Config *ConfigureClientRequest
+	host   string
+	config *ConfigureClientRequest
 }
 
-// / Config can be null here, the sidecar can be configured in ways outside of this package
+// NewClient creates a new instance of the Near Protocol Sidecar client.
+// It takes the host and configuration as parameters and returns a pointer to the client.
+// If the host is empty, it defaults to "http://localhost:5888".
+// The configuration can be nil, assuming the sidecar is set up outside of this package.
 func NewClient(host string, config *ConfigureClientRequest) (*Client, error) {
 	if host == "" {
 		host = "http://localhost:5888"
 	}
 	client := &Client{
 		client: &http.Client{},
-		Host:   host,
-		Config: config,
+		host:   host,
+		config: config,
 	}
 	return client, client.Health()
 }
 
-type Network string
+// ConfigureClient configures the Near Protocol Sidecar client with the provided configuration.
+// It sends a PUT request to the "/configure" endpoint with the configuration as JSON payload.
+func (c *Client) ConfigureClient(req *ConfigureClientRequest) error {
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal configure client request: %v", err)
+	}
 
-var OverrideRPCUrl string
+	httpReq, err := http.NewRequest(http.MethodPut, c.host+"/configure", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create configure client request: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
 
-const (
-	Mainnet  Network = "mainnet"
-	Testnet  Network = "testnet"
-	Localnet Network = "localnet"
-)
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send configure client request: %v", err)
+	}
+	defer resp.Body.Close()
 
-type ConfigureClientRequest struct {
-	/// The signer's near account id: "anexamplehere.near"
-	AccountID string `json:"account_id"`
-	/// The ed25519 secret key, bs58 encoded, prefixed with "ed25519:"
-	/// Note: you can get this as is from your wallet
-	/// Example: ed25519:5HeSvTBxttkRrBgds9aUGjMK5qP7EgBrgENPcRaCg4buBQcDZoSK8nbV9iP6F8TnBELiBTfS6L6wzNRH74wtC64K
-	SecretKey string `json:"secret_key"`
-	/// The contract id you're submitting to, e.g. "anexamplehere.near"
-	ContractID string `json:"contract_id"`
-	/// The network to connect to
-	Network Network `json:"network"`
-	/// Optionally a namespace, this should be registered on the shared blob registry
-	Namespace *Namespace `json:"namespace"`
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to configure client, status code: %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
-type Namespace struct {
-	ID      int `json:"id"`
-	Version int `json:"version"`
+// GetBlob retrieves a blob from the Near blockchain using the provided BlobRef.
+// It sends a GET request to the "/blob" endpoint with the transaction ID as a query parameter.
+func (c *Client) GetBlob(ref BlobRef) (*Blob, error) {
+	resp, err := c.client.Get(c.host + "/blob?transaction_id=" + ref.ID())
+	if err != nil {
+		return nil, fmt.Errorf("failed to send get blob request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get blob, status code: %d", resp.StatusCode)
+	}
+
+	var blob Blob
+	err = json.NewDecoder(resp.Body).Decode(&blob)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode blob response: %v", err)
+	}
+
+	return &blob, nil
 }
 
+// SubmitBlob submits a blob to the Near blockchain.
+// It sends a POST request to the "/blob" endpoint with the blob data as JSON payload.
+// The response contains the transaction ID of the submitted blob.
+func (c *Client) SubmitBlob(blob Blob) (*BlobRef, error) {
+	if blob.Data == nil {
+		return nil, errors.New("blob data cannot be nil")
+	}
+
+	jsonData, err := blob.MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal blob: %v", err)
+	}
+
+	resp, err := c.client.Post(c.host+"/blob", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to send submit blob request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to submit blob, status code: %d", resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read submit blob response: %v", err)
+	}
+
+	transactionID, err := hex.DecodeString(string(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode transaction ID: %v", err)
+	}
+
+	blobRef, err := NewBlobRef(transactionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create blob reference: %v", err)
+	}
+
+	return blobRef, nil
+}
+
+// Health checks the health of the Near Protocol Sidecar service.
+// It sends a GET request to the "/health" endpoint and expects a successful response.
+func (c *Client) Health() error {
+	resp, err := c.client.Get(c.host + "/health")
+	if err != nil {
+		return fmt.Errorf("failed to send health check request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health check failed, status code: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// Close closes the Near Protocol Sidecar client.
+// It should be called when the client is no longer needed.
+func (c *Client) Close() {
+	// Perform any necessary cleanup or resource release
+}
+
+// BlobRef represents a reference to a blob on the Near blockchain.
 type BlobRef struct {
-	TransactionID [32]byte `json:"transaction_id"`
+	transactionID [32]byte
 }
 
-func (b *BlobRef) Id() string {
-	return fmt.Sprintf("%x", b.TransactionID)
+// NewBlobRef creates a new BlobRef from the provided transaction ID.
+// It returns an error if the transaction ID is not exactly 32 bytes.
+func NewBlobRef(transactionID []byte) (*BlobRef, error) {
+	if len(transactionID) != 32 {
+		return nil, errors.New("invalid transaction ID length")
+	}
+	var ref BlobRef
+	copy(ref.transactionID[:], transactionID)
+	return &ref, nil
 }
 
-func (b *BlobRef) MarshalJSON() ([]byte, error) {
+// ID returns the transaction ID of the BlobRef as a hex-encoded string.
+func (r *BlobRef) ID() string {
+	return hex.EncodeToString(r.transactionID[:])
+}
+
+// MarshalJSON marshals the BlobRef to JSON format.
+// It encodes the transaction ID as a hex string.
+func (r *BlobRef) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		TransactionID string `json:"transaction_id"`
 	}{
-		TransactionID: b.Id(),
+		TransactionID: r.ID(),
 	})
 }
 
-func (b *BlobRef) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON unmarshals the BlobRef from JSON format.
+// It decodes the transaction ID from a hex string.
+func (r *BlobRef) UnmarshalJSON(data []byte) error {
 	var aux struct {
 		TransactionID string `json:"transaction_id"`
 	}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
-	decodedTransactionID, err := hex.DecodeString(aux.TransactionID)
+	transactionID, err := hex.DecodeString(aux.TransactionID)
 	if err != nil {
 		return err
 	}
-	copy(b.TransactionID[:], decodedTransactionID)
+	copy(r.transactionID[:], transactionID)
 	return nil
 }
 
-func FromBytes(data []byte) (*BlobRef, error) {
-	if len(data) != 32 {
-		return nil, errors.New("invalid blob ref")
-	}
-	var blobRef BlobRef
-	copy(blobRef.TransactionID[:], data)
-	return &blobRef, nil
-}
-
+// Blob represents a blob of data stored on the Near blockchain.
 type Blob struct {
 	Data []byte `json:"data"`
 }
 
+// MarshalJSON marshals the Blob to JSON format.
+// It encodes the data as a hex string.
 func (b *Blob) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Data string `json:"data"`
 	}{
-		Data: fmt.Sprintf("%x", b.Data),
+		Data: hex.EncodeToString(b.Data),
 	})
 }
 
+// UnmarshalJSON unmarshals the Blob from JSON format.
+// It decodes the data from a hex string.
 func (b *Blob) UnmarshalJSON(data []byte) error {
 	var aux struct {
 		Data string `json:"data"`
@@ -129,104 +267,26 @@ func (b *Blob) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (c *Client) ConfigureClient(req *ConfigureClientRequest) error {
-	jsonData, err := json.Marshal(req)
-	log.Info("ConfigureClient ", "jsonData", string(jsonData))
-	if err != nil {
-		return err
-	}
+// Network represents a Near network.
+type Network string
 
-	httpReq, err := http.NewRequest(http.MethodPut, c.Host+"/configure", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
+const (
+	Mainnet  Network = "mainnet"
+	Testnet  Network = "testnet"
+	Localnet Network = "localnet"
+)
 
-	resp, err := c.client.Do(httpReq)
-	log.Info("ConfigureClient ", "resp", resp)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to configure client, status code: %d", resp.StatusCode)
-	}
-
-	return nil
+// ConfigureClientRequest represents a request to configure the Near Protocol Sidecar client.
+type ConfigureClientRequest struct {
+	AccountID  string     `json:"account_id"`
+	SecretKey  string     `json:"secret_key"`
+	ContractID string     `json:"contract_id"`
+	Network    Network    `json:"network"`
+	Namespace  *Namespace `json:"namespace"`
 }
 
-func (c *Client) GetBlob(req BlobRef) (*Blob, error) {
-	log.Info("GetBlob ", "tx ", req.Id())
-	resp, err := c.client.Get(c.Host + "/blob?transaction_id=" + req.Id())
-	log.Info("GetBlob ", "resp", resp)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get blob, status code: %d", resp.StatusCode)
-	}
-
-	var blob Blob
-	err = json.NewDecoder(resp.Body).Decode(&blob)
-	if err != nil {
-		return nil, err
-	}
-
-	return &blob, nil
-}
-
-func (c *Client) SubmitBlob(req Blob) (*BlobRef, error) {
-	jsonData, err := req.MarshalJSON()
-	log.Info("SubmitBlob ", "jsonData", string(jsonData))
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.client.Post(c.Host+"/blob", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to submit blob, status code: %d", resp.StatusCode)
-	}
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error("Failed to read response body", "err", err)
-		return nil, err
-	}
-	log.Info("SubmitBlob ", "responseBody", string(bodyBytes)) // Create a new reader from the body bytes
-
-	hexBytes, err := hex.DecodeString(string(bodyBytes))
-	if err != nil {
-		log.Error("Failed to decode hex string", "err", err)
-		return nil, err
-	}
-
-	blobRef, err := FromBytes(hexBytes)
-	log.Info("SubmitBlob", "result", blobRef)
-	if err != nil {
-		return nil, err
-	}
-
-	return &*blobRef, nil
-}
-
-func (c *Client) Health() error {
-	resp, err := c.client.Get(c.Host + "/health")
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return errors.New("health check failed")
-	}
-
-	return nil
+// Namespace represents a namespace on the Near blockchain.
+type Namespace struct {
+	ID      int `json:"id"`
+	Version int `json:"version"`
 }
