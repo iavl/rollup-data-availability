@@ -203,6 +203,11 @@ func NewBlobRef(transactionID []byte) (*BlobRef, error) {
 	return &ref, nil
 }
 
+// Deref returns the transaction ID of the BlobRef.
+func (r *BlobRef) Deref() []byte {
+	return r.transactionID[:]
+}
+
 // ID returns the transaction ID of the BlobRef as a hex-encoded string.
 func (r *BlobRef) ID() string {
 	return hex.EncodeToString(r.transactionID[:])

@@ -148,6 +148,7 @@ func TestHealth(t *testing.T) {
 		t.Fatalf("health check failed: %v", err)
 	}
 }
+
 func TestBlobMarshalUnmarshal(t *testing.T) {
 	data := []byte("test_data")
 	blob := Blob{Data: data}
