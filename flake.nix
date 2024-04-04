@@ -35,6 +35,7 @@
             bashInteractive
             taplo
             clang
+            just
             cmake
             openssl
             protobuf
