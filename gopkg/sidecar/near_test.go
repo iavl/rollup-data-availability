@@ -15,7 +15,10 @@ func InitClient() *Client {
 		Namespace:  nil,
 	}
 
-	client := NewClient("http://localhost:5888", &conf)
+	client, err := NewClient("http://localhost:5888", &conf)
+	if err != nil {
+		panic(err)
+	}
 	return client
 }
 

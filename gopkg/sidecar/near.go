@@ -19,12 +19,17 @@ type Client struct {
 	Config *ConfigureClientRequest
 }
 
-func NewClient(host string, config *ConfigureClientRequest) *Client {
-	return &Client{
+// / Config can be null here, the sidecar can be configured in ways outside of this package
+func NewClient(host string, config *ConfigureClientRequest) (*Client, error) {
+	if host == "" {
+		host = "http://localhost:5888"
+	}
+	client := &Client{
 		client: &http.Client{},
 		Host:   host,
 		Config: config,
 	}
+	return client, client.Health()
 }
 
 type Network string
