@@ -25,3 +25,8 @@ enrich:
     echo "$JSON_CONTENT" > "{{ENRICHED_JSON_FILE}}"
 
     echo "JSON file enriched successfully."
+
+GHCR_BASE := "ghcr.io/near/rollup-data-availability"
+
+docker-sidecar:
+    docker build -t {{GHCR_BASE}}/http-api:dev -f bin/http-api/Dockerfile .
