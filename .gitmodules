@@ -1,0 +1,3 @@
+[submodule "eth/lib/zkevm-contracts"]
+	path = eth/lib/zkevm-contracts
+	url = https://github.com/0xPolygonHermez/zkevm-contracts
