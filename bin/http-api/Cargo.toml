@@ -7,8 +7,9 @@ version.workspace = true
 [dependencies]
 anyhow                       = "1.0.75"
 axum                         = "0.6"
-hex.workspace                = true
 clap                         = { version = "4.4", features = [ "derive" ] }
+hex.workspace                = true
+moka                         = { version = "*", features = [ "future" ] }
 near-da-http-api-data        = { path = "../../crates/http-api-data" }
 near-da-primitives           = { path = "../../crates/primitives" }
 near-da-rpc                  = { path = "../../crates/da-rpc" }

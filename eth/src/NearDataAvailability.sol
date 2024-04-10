@@ -52,8 +52,7 @@ contract NearDataAvailability is Initializable, IDataAvailabilityProtocol, Ownab
 
     /**
      * @notice Verifies that the given signedHash has been signed by requiredAmountOfSignatures committee members
-     * @param dataAvailabilityBatch
-     *
+     * @param dataAvailabilityBatch blarg
      */
     function verifyMessage(bytes32, /*hash*/ bytes calldata dataAvailabilityBatch) external view {
         VerifiedBatch storage item;

@@ -7,6 +7,7 @@ use axum::{
     routing, Router,
 };
 use clap::Parser;
+use moka::future::Cache;
 use near_da_http_api_data::ConfigureClientRequest;
 use near_da_rpc::{
     near::{config::Config, Client},
@@ -35,6 +36,8 @@ struct CliArgs {
 
 struct AppState {
     client: Option<Client>,
+    // TODO: choose beter caching for key, caches the blob submissions
+    cache: Cache<CryptoHash, String>,
 }
 
 fn config_request_to_config(request: ConfigureClientRequest) -> Result<Config, anyhow::Error> {
@@ -96,18 +99,26 @@ async fn submit_blob(
 ) -> anyhow::Result<String, AppError> {
     debug!("submitting blob: {:?}", request);
     let app_state = state.read().await;
-    let client = app_state
-        .client
-        .as_ref()
-        .ok_or(anyhow::anyhow!("client is not configured"))?;
 
-    let result = client
-        .submit(&[near_da_primitives::Blob::new_v0(request.data)])
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to submit blobs: {}", e))?;
-    debug!("submit_blob result: {:?}", result);
+    let blob_hash = CryptoHash::hash_bytes(request.data.as_slice());
+    if let Some(blob_ref) = app_state.cache.get(&blob_hash).await {
+        Ok(blob_ref)
+    } else {
+        let client = app_state
+            .client
+            .as_ref()
+            .ok_or(anyhow::anyhow!("client is not configured"))?;
 
-    Ok(hex::encode(result.0))
+        let result = client
+            .submit(&[near_da_primitives::Blob::new_v0(request.data)])
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to submit blobs: {}", e))?;
+
+        let result = hex::encode(result.0);
+        debug!("submit_blob result: {:?}", result);
+        app_state.cache.insert(blob_hash, result.clone());
+        Ok(result)
+    }
 }
 
 // https://github.com/tokio-rs/axum/blob/d7258bf009194cf2f242694e673759d1dbf8cfc0/examples/anyhow-error-response/src/main.rs#L34-L57
@@ -143,7 +154,10 @@ async fn main() {
         .compact()
         .init();
 
-    let mut state = AppState { client: None };
+    let mut state = AppState {
+        client: None,
+        cache: Cache::new(2048), // (32 * 2) * 2048 = 128kb
+    };
 
     if let Some(path) = args.config {
         let file_contents = tokio::fs::read_to_string(path).await.unwrap();
