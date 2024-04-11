@@ -85,11 +85,16 @@ pub struct LegacyBlob {
 
 #[serde_as]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(feature = "std", derive(Debug))]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BlobRef {
     #[serde_as(as = "serde_with::hex::Hex")]
     pub transaction_id: [u8; 32],
+}
+
+impl From<[u8; 32]> for BlobRef {
+    fn from(transaction_id: [u8; 32]) -> Self {
+        Self { transaction_id }
+    }
 }
 
 pub const BLOB_REF_SIZE: usize = 32;

@@ -1,0 +1,260 @@
+package near_mock
+
+// // Tests
+//
+// package near
+//
+// import (
+// 	"context"
+// 	"encoding/hex"
+// 	"encoding/json"
+// 	"net/http"
+// 	"net/http/httptest"
+// 	"testing"
+//
+// 	"github.com/ethereum/go-ethereum/common"
+// 	"github.com/near/rollup-data-availability/gopkg/sidecar"
+// 	"github.com/stretchr/testify/assert"
+// 	"github.com/stretchr/testify/require"
+// )
+//
+// // TestNearProtocolBackend tests the NearProtocolBackend.
+// func TestNearProtocolBackend(t *testing.T) {
+// 	// Set up a mock server
+// 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		switch r.URL.Path {
+// 		case "/health":
+// 			w.WriteHeader(http.StatusOK)
+// 		case "/configure":
+// 			var req sidecar.ConfigureClientRequest
+// 			err := json.NewDecoder(r.Body).Decode(&req)
+// 			require.NoError(t, err)
+// 			assert.Equal(t, "test_account", req.AccountID)
+// 			assert.Equal(t, "test_secret_key", req.SecretKey)
+// 			assert.Equal(t, "test_contract", req.ContractID)
+// 			assert.Equal(t, sidecar.Testnet, req.Network)
+// 			assert.Nil(t, req.Namespace)
+// 			w.WriteHeader(http.StatusOK)
+// 		case "/blob":
+// 			if r.Method == http.MethodPost {
+// 				var blob sidecar.Blob
+// 				err := json.NewDecoder(r.Body).Decode(&blob)
+// 				require.NoError(t, err)
+// 				transactionID := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+// 				w.Write([]byte(transactionID))
+// 			} else if r.Method == http.MethodGet {
+// 				transactionID := r.URL.Query().Get("transaction_id")
+// 				assert.Equal(t, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", transactionID)
+// 				blob := sidecar.Blob{Data: []byte("test_data")}
+// 				jsonData, err := json.Marshal(blob)
+// 				require.NoError(t, err)
+// 				w.Write(jsonData)
+// 			}
+// 		default:
+// 			w.WriteHeader(http.StatusNotFound)
+// 		}
+// 	}))
+// 	defer mockServer.Close()
+//
+// 	// Create a new NearProtocolBackend instance
+// 	config := &sidecar.ConfigureClientRequest{
+// 		AccountID:  "test_account",
+// 		SecretKey:  "test_secret_key",
+// 		ContractID: "test_contract",
+// 		Network:    sidecar.Testnet,
+// 		Namespace:  nil,
+// 	}
+// 	backend, err := New(mockServer.URL, config)
+// 	require.NoError(t, err)
+// 	defer backend.Client.Close()
+//
+// 	// Test PostSequence
+// 	batchesData := GenerateRandomBatchesData(3, 10)
+// 	transactionID, err := backend.PostSequence(context.Background(), batchesData)
+// 	require.NoError(t, err)
+// 	expectedTransactionID, err := hex.DecodeString("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+// 	require.NoError(t, err)
+// 	assert.Equal(t, expectedTransactionID, transactionID)
+//
+// 	// Test GetSequence
+// 	batchHashes := []common.Hash{
+// 		common.HexToHash("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+// 	}
+// 	dataAvailabilityMessage := []byte("data_availability_message")
+// 	batchData, err := backend.GetSequence(context.Background(), batchHashes, dataAvailabilityMessage)
+// 	require.NoError(t, err)
+// 	assert.Equal(t, 1, len(batchData))
+// 	assert.Equal(t, []byte("test_data"), batchData[0])
+// }
+//
+// // TestNewBlobRef tests the NewBlobRef function.
+// func TestNewBlobRef(t *testing.T) {
+// 	validTransactionID := make([]byte, 32)
+// 	blobRef, err := sidecar.NewBlobRef(validTransactionID)
+// 	require.NoError(t, err)
+// 	assert.Equal(t, validTransactionID, blobRef.Deref())
+//
+// 	invalidTransactionID := make([]byte, 31)
+// 	_, err = sidecar.NewBlobRef(invalidTransactionID)
+// 	assert.Error(t, err)
+// }
+//
+// // TestBlobRefMarshalUnmarshal tests the MarshalJSON and UnmarshalJSON methods of BlobRef.
+// func TestBlobRefMarshalUnmarshal(t *testing.T) {
+// 	transactionID := make([]byte, 32)
+// 	for i := 0; i < 32; i++ {
+// 		transactionID[i] = byte(i)
+// 	}
+// 	blobRef := &sidecar.BlobRef{}
+// 	copy(blobRef.Deref(), transactionID)
+//
+// 	jsonData, err := json.Marshal(blobRef)
+// 	require.NoError(t, err)
+//
+// 	var unmarshaledBlobRef sidecar.BlobRef
+// 	err = json.Unmarshal(jsonData, &unmarshaledBlobRef)
+// 	require.NoError(t, err)
+// 	assert.Equal(t, blobRef.Deref(), unmarshaledBlobRef.Deref())
+// }
+//
+// // TestBlobMarshalUnmarshal tests the MarshalJSON and UnmarshalJSON methods of Blob.
+// func TestBlobMarshalUnmarshal(t *testing.T) {
+// 	data := []byte("test_data")
+// 	blob := &sidecar.Blob{Data: data}
+//
+// 	jsonData, err := json.Marshal(blob)
+// 	require.NoError(t, err)
+//
+// 	var unmarshaledBlob sidecar.Blob
+// 	err = json.Unmarshal(jsonData, &unmarshaledBlob)
+// 	require.NoError(t, err)
+// 	assert.Equal(t, data, unmarshaledBlob.Data)
+// }
+//
+// // TestClientHealth tests the Health method of the Client.
+// func TestClientHealth(t *testing.T) {
+// 	// Set up a mock server
+// 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		if r.URL.Path == "/health" {
+// 			w.WriteHeader(http.StatusOK)
+// 		} else {
+// 			w.WriteHeader(http.StatusNotFound)
+// 		}
+// 	}))
+// 	defer mockServer.Close()
+// 	client, err := sidecar.NewClient(mockServer.URL, nil)
+// 	require.NoError(t, err)
+//
+// 	err = client.Health()
+// 	assert.NoError(t, err)
+// }
+//
+// // TestClientConfigureClient tests the ConfigureClient method of the Client.
+// func TestClientConfigureClient(t *testing.T) {
+// 	// Set up a mock server
+// 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		if r.URL.Path == "/configure" {
+// 			var req sidecar.ConfigureClientRequest
+// 			err := json.NewDecoder(r.Body).Decode(&req)
+// 			require.NoError(t, err)
+// 			assert.Equal(t, "test_account", req.AccountID)
+// 			assert.Equal(t, "test_secret_key", req.SecretKey)
+// 			assert.Equal(t, "test_contract", req.ContractID)
+// 			assert.Equal(t, sidecar.Testnet, req.Network)
+// 			assert.Nil(t, req.Namespace)
+// 			w.WriteHeader(http.StatusOK)
+// 		} else {
+// 			w.WriteHeader(http.StatusNotFound)
+// 		}
+// 	}))
+// 	defer mockServer.Close()
+//
+// 	client, err := sidecar.NewClient(mockServer.URL, nil)
+// 	require.NoError(t, err)
+//
+// 	config := &sidecar.ConfigureClientRequest{
+// 		AccountID:  "test_account",
+// 		SecretKey:  "test_secret_key",
+// 		ContractID: "test_contract",
+// 		Network:    sidecar.Testnet,
+// 		Namespace:  nil,
+// 	}
+// 	err = client.ConfigureClient(config)
+// 	assert.NoError(t, err)
+// }
+//
+// // TestClientSubmitBlob tests the SubmitBlob method of the Client.
+// func TestClientSubmitBlob(t *testing.T) {
+// 	// Set up a mock server
+// 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		if r.URL.Path == "/blob" && r.Method == http.MethodPost {
+// 			var blob sidecar.Blob
+// 			err := json.NewDecoder(r.Body).Decode(&blob)
+// 			require.NoError(t, err)
+// 			assert.Equal(t, []byte("test_data"), blob.Data)
+// 			transactionID := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+// 			w.Write([]byte(transactionID))
+// 		} else {
+// 			w.WriteHeader(http.StatusNotFound)
+// 		}
+// 	}))
+// 	defer mockServer.Close()
+//
+// 	client, err := sidecar.NewClient(mockServer.URL, nil)
+// 	require.NoError(t, err)
+//
+// 	blob := sidecar.Blob{Data: []byte("test_data")}
+// 	blobRef, err := client.SubmitBlob(blob)
+// 	require.NoError(t, err)
+// 	expectedTransactionID, err := hex.DecodeString("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+// 	require.NoError(t, err)
+// 	assert.Equal(t, expectedTransactionID, blobRef.Deref())
+// }
+//
+// // TestClientGetBlob tests the GetBlob method of the Client.
+// func TestClientGetBlob(t *testing.T) {
+// 	// Set up a mock server
+// 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		if r.URL.Path == "/blob" && r.Method == http.MethodGet {
+// 			transactionID := r.URL.Query().Get("transaction_id")
+// 			assert.Equal(t, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", transactionID)
+// 			blob := sidecar.Blob{Data: []byte("test_data")}
+// 			jsonData, err := json.Marshal(blob)
+// 			require.NoError(t, err)
+// 			w.Write(jsonData)
+// 		} else {
+// 			w.WriteHeader(http.StatusNotFound)
+// 		}
+// 	}))
+// 	defer mockServer.Close()
+//
+// 	client, err := sidecar.NewClient(mockServer.URL, nil)
+// 	require.NoError(t, err)
+//
+// 	transactionID := make([]byte, 32)
+// 	copy(transactionID, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+// 	blobRef := &sidecar.BlobRef{}
+// 	copy(blobRef.Deref(), transactionID)
+//
+// 	blob, err := client.GetBlob(*blobRef)
+// 	require.NoError(t, err)
+// 	assert.Equal(t, []byte("test_data"), blob.Data)
+// }
+//
+// // GenerateRandomBlobData generates random blob data of the specified size.
+// func GenerateRandomBlobData(size int) []byte {
+// 	data := make([]byte, size)
+// 	for i := 0; i < size; i++ {
+// 		data[i] = byte(i % 256)
+// 	}
+// 	return data
+// }
+//
+// // GenerateRandomBatchesData generates a slice of random batch data.
+// func GenerateRandomBatchesData(numBatches, batchSize int) [][]byte {
+// 	batchesData := make([][]byte, numBatches)
+// 	for i := 0; i < numBatches; i++ {
+// 		batchesData[i] = GenerateRandomBlobData(batchSize)
+// 	}
+// 	return batchesData
+// }

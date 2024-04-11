@@ -8,7 +8,7 @@ pub mod near;
 
 #[repr(C)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubmitResult(pub [u8; 32]);
+pub struct SubmitResult(pub BlobRef);
 
 #[repr(C)]
 #[derive(Debug, Clone, Serialize, Deserialize)]

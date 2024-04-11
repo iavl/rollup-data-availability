@@ -18,6 +18,8 @@ use std::{
 };
 use tokio::runtime::{self, Runtime};
 
+/// TODO: fix a lot of these panics since they arent handled well by ffi!
+///
 pub type BlockHeight = u64;
 
 // Denote the version to make sure we don't break the API downstream
@@ -158,7 +160,7 @@ pub unsafe extern "C" fn submit(
         .collect::<Vec<Blob>>();
     match RUNTIME.block_on(client.submit(&blobs)) {
         Ok(x) => {
-            let str = CString::new(x.0).unwrap();
+            let str = CString::new(x.0.transaction_id).unwrap();
             let ptr = str.into_raw();
             let char: *mut c_char = ptr as *mut c_char;
 
@@ -291,8 +293,7 @@ pub unsafe extern "C" fn submit_batch(
         let blob = Blob::new_v0(tx_data.to_vec());
         match RUNTIME.block_on(client.submit(&[blob])) {
             Ok(result) => {
-                let tx = result.0;
-                let blob_ref = BlobRef::new(tx);
+                let blob_ref: BlobRef = result.0.into();
 
                 RustSafeArray::new((*blob_ref).to_vec())
             }

@@ -2282,7 +2282,6 @@ version = "0.2.3"
 dependencies = [
  "borsh 0.10.3",
  "hex",
- "near-primitives 0.17.0",
  "serde",
  "serde_with",
 ]

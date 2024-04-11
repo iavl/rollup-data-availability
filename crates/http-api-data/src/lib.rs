@@ -2,8 +2,7 @@
 extern crate alloc;
 
 use alloc::string::String;
-
-pub use near_da_primitives::{Blob, Namespace};
+pub use near_da_primitives::{Blob, BlobRef, Namespace};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]

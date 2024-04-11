@@ -36,8 +36,8 @@ struct CliArgs {
 
 struct AppState {
     client: Option<Client>,
-    // TODO: choose beter caching for key, caches the blob submissions
-    cache: Cache<CryptoHash, String>,
+    // TODO: choose faster cache key
+    cache: Cache<CryptoHash, BlobRef>,
 }
 
 fn config_request_to_config(request: ConfigureClientRequest) -> Result<Config, anyhow::Error> {
@@ -96,29 +96,34 @@ async fn get_blob(
 async fn submit_blob(
     State(state): State<Arc<RwLock<AppState>>>,
     Json(request): Json<Blob>,
-) -> anyhow::Result<String, AppError> {
+) -> anyhow::Result<Json<BlobRef>, AppError> {
     debug!("submitting blob: {:?}", request);
     let app_state = state.read().await;
 
     let blob_hash = CryptoHash::hash_bytes(request.data.as_slice());
-    if let Some(blob_ref) = app_state.cache.get(&blob_hash).await {
-        Ok(blob_ref)
+    let blob_ref = if let Some(blob_ref) = app_state.cache.get(&blob_hash).await {
+        debug!("blob is cached, returning: {:?}", blob_ref);
+        blob_ref
     } else {
         let client = app_state
             .client
             .as_ref()
             .ok_or(anyhow::anyhow!("client is not configured"))?;
 
-        let result = client
+        let blob_ref = client
             .submit(&[near_da_primitives::Blob::new_v0(request.data)])
             .await
-            .map_err(|e| anyhow::anyhow!("failed to submit blobs: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("failed to submit blobs: {}", e))?
+            .0;
 
-        let result = hex::encode(result.0);
-        debug!("submit_blob result: {:?}", result);
-        app_state.cache.insert(blob_hash, result.clone());
-        Ok(result)
-    }
+        debug!(
+            "submit_blob result: {:?}, caching hash {blob_hash}",
+            blob_ref
+        );
+        app_state.cache.insert(blob_hash, blob_ref.clone()).await;
+        blob_ref
+    };
+    Ok(blob_ref.into())
 }
 
 // https://github.com/tokio-rs/axum/blob/d7258bf009194cf2f242694e673759d1dbf8cfc0/examples/anyhow-error-response/src/main.rs#L34-L57

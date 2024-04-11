@@ -180,7 +180,7 @@ impl DataAvailability for Client {
             }
             near_primitives::views::FinalExecutionStatus::SuccessValue(bytes) => {
                 debug!("Transaction submitted: {:?}", bytes);
-                Ok(SubmitResult(result.transaction_outcome.id.0))
+                Ok(SubmitResult(result.transaction_outcome.id.0.into()))
             }
             x => Err(eyre!("Transaction not ready yet: {:?}", x)),
         }
