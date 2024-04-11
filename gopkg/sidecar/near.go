@@ -48,7 +48,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	log "github.com/sirupsen/logrus"
 	"net/http"
 )
 
@@ -78,6 +78,9 @@ func NewClient(host string, config *ConfigureClientRequest) (*Client, error) {
 // ConfigureClient configures the Near Protocol Sidecar client with the provided configuration.
 // It sends a PUT request to the "/configure" endpoint with the configuration as JSON payload.
 func (c *Client) ConfigureClient(req *ConfigureClientRequest) error {
+	if req == nil {
+		req = c.config
+	}
 	jsonData, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to marshal configure client request: %v", err)
@@ -136,6 +139,7 @@ func (c *Client) SubmitBlob(blob Blob) (*BlobRef, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal blob: %v", err)
 	}
+	log.Debug("near-sidecar: SubmitBlob json: ", jsonData)
 
 	resp, err := c.client.Post(c.host+"/blob", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -147,22 +151,13 @@ func (c *Client) SubmitBlob(blob Blob) (*BlobRef, error) {
 		return nil, fmt.Errorf("failed to submit blob, status code: %d", resp.StatusCode)
 	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read submit blob response: %v", err)
-	}
-
-	transactionID, err := hex.DecodeString(string(bodyBytes))
+	var blobRef BlobRef
+	err = json.NewDecoder(resp.Body).Decode(&blobRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode transaction ID: %v", err)
 	}
 
-	blobRef, err := NewBlobRef(transactionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create blob reference: %v", err)
-	}
-
-	return blobRef, nil
+	return &blobRef, nil
 }
 
 // Health checks the health of the Near Protocol Sidecar service.
@@ -216,11 +211,13 @@ func (r *BlobRef) ID() string {
 // MarshalJSON marshals the BlobRef to JSON format.
 // It encodes the transaction ID as a hex string.
 func (r *BlobRef) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
+	json, err := json.Marshal(struct {
 		TransactionID string `json:"transaction_id"`
 	}{
 		TransactionID: r.ID(),
 	})
+	log.Info("near-sidecar MarshalJSON json ", json, " blob ref ", r)
+	return json, err
 }
 
 // UnmarshalJSON unmarshals the BlobRef from JSON format.

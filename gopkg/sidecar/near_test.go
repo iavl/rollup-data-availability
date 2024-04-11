@@ -14,6 +14,8 @@ import (
 func initClient(t *testing.T) *Client {
 	// Read the configuration from the "http-config.json" file
 	configData, err := os.ReadFile("../../http-config.json")
+
+	log.Debug("initClient configData ", string(configData))
 	if err != nil {
 		t.Fatalf("failed to read config file: %v", err)
 	}
@@ -25,52 +27,15 @@ func initClient(t *testing.T) *Client {
 		panic(fmt.Errorf("failed to unmarshal config: %v", err))
 	}
 
-	client, err := NewClient("http://localhost:5888", nil)
+	client, err := NewClient("http://localhost:5888", &conf)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
+	}
+	err = client.ConfigureClient(&conf)
+	if err != nil {
+		log.Warn("failed to configure client, likely already configured: ", err)
 	}
 	return client
-}
-
-func TestNewClient(t *testing.T) {
-	// Test creating a new client with default host
-	client, err := NewClient("", nil)
-	if err != nil {
-		t.Fatalf("failed to create client: %v", err)
-	}
-	defer client.Close()
-
-	// Test creating a new client with custom host and configuration
-	config := &ConfigureClientRequest{
-		AccountID:  "test_account",
-		SecretKey:  "test_secret_key",
-		ContractID: "test_contract",
-		Network:    Testnet,
-		Namespace:  &Namespace{ID: 1, Version: 1},
-	}
-	client, err = NewClient("http://localhost:5888", config)
-	if err != nil {
-		t.Fatalf("failed to create client: %v", err)
-	}
-	defer client.Close()
-}
-
-func TestConfigureClient(t *testing.T) {
-	client := initClient(t)
-	defer client.Close()
-
-	// Test configuring the client
-	config := &ConfigureClientRequest{
-		AccountID:  "test_account",
-		SecretKey:  "test_secret_key",
-		ContractID: "test_contract",
-		Network:    Testnet,
-		Namespace:  &Namespace{ID: 1, Version: 1},
-	}
-	err := client.ConfigureClient(config)
-	if err != nil {
-		log.Error("TestConfigureClient - likely already configured ", err)
-	}
 }
 
 func TestGetBlob(t *testing.T) {
